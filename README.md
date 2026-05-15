@@ -42,15 +42,7 @@ pip install -r requirements.txt
 
 ## 快速开始
 
-### 1. 初始化数据库
-
-将 CSV 数据导入 DuckDB 数据库：
-
-```bash
-python scripts/init_database.py --csv all_stock_history.csv all_stock_history_part2.csv
-```
-
-### 2. 启动服务
+### 1. 启动服务
 
 ```bash
 python main.py
@@ -60,7 +52,68 @@ python main.py
 - API 文档: http://localhost:8000/docs
 - 前端界面: http://localhost:8000/app
 
-### 3. 手动同步数据
+### 2. 使用虚拟环境启动（推荐）
+
+```bash
+# 创建虚拟环境
+python -m venv .venv
+
+# 激活虚拟环境
+# Windows:
+.venv\Scripts\activate
+# Linux/Mac:
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动服务
+python main.py
+```
+
+### 3. 指定主机和端口启动
+
+```bash
+python main.py --host 0.0.0.0 --port 8080
+```
+
+### 4. 开发模式启动（自动重载）
+
+```bash
+python main.py --reload
+```
+
+## 数据同步
+
+### 通过前端界面同步
+
+1. 打开 http://localhost:8000/app
+2. 点击"全量同步"按钮同步所有股票数据
+3. 点击"每日更新"按钮同步最新数据
+
+### 通过 API 同步
+
+```bash
+# 全量同步（从数据库最新日期到今日）
+curl -X POST http://localhost:8000/api/sync \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# 同步指定日期范围
+curl -X POST http://localhost:8000/api/sync \
+  -H "Content-Type: application/json" \
+  -d '{"start_date": "20240101", "end_date": "20241231"}'
+
+# 同步指定股票
+curl -X POST http://localhost:8000/api/sync \
+  -H "Content-Type: application/json" \
+  -d '{"ts_code": "000001.SZ"}'
+
+# 每日更新
+curl -X POST http://localhost:8000/api/sync/daily
+```
+
+### 通过脚本同步
 
 ```bash
 # 同步所有股票最新数据
@@ -80,12 +133,20 @@ python scripts/sync_data.py --start 20240101 --end 20241231
 - `GET /api/stocks` - 获取所有股票列表
 - `GET /api/stock/{ts_code}` - 获取指定股票历史数据
 - `GET /api/stock/{ts_code}/latest` - 获取最新数据
+- `GET /api/stock/{ts_code}/kline` - 获取 K 线数据
+- `GET /api/stock/{ts_code}/indicators` - 获取技术指标
 - `GET /api/stock/{ts_code}/stats` - 获取统计信息
 
 ### 数据同步
 
 - `POST /api/sync` - 手动同步数据
+- `POST /api/sync/basic` - 同步股票基础信息
 - `POST /api/sync/daily` - 执行每日更新
+
+### 新闻资讯
+
+- `GET /api/news` - 获取股票新闻
+- `POST /api/news/favorites` - 获取自选股票新闻
 
 ### 系统管理
 
