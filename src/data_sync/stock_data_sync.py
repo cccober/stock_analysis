@@ -5,6 +5,8 @@ from typing import Optional, List, Dict, Any
 import logging
 import time
 import os
+import requests
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,7 +17,10 @@ try:
     AKSHARE_AVAILABLE = True
 except ImportError:
     AKSHARE_AVAILABLE = False
-    logger.warning("AKShare 未安装，将使用 Tushare 作为唯一新闻源")
+    logger.warning("AKShare 未安装，将使用 Tushare 和东方财富API作为数据源")
+
+# 数据源类型
+DATA_SOURCES = ['tushare', 'akshare', 'eastmoney']
 
 class StockDataSync:
     NEWS_SOURCES = ['eastmoney', 'sina', '10jqka', 'wallstreetcn', 'yuncaijing']
@@ -269,7 +274,13 @@ class StockDataSync:
                         logger.warning(f"Tushare 下载失败，尝试使用 AKShare")
         
         # Tushare 失败或未初始化，尝试使用 AKShare
-        return self._download_stock_data_akshare(ts_code, start_date, end_date)
+        akshare_result = self._download_stock_data_akshare(ts_code, start_date, end_date)
+        if not akshare_result.empty:
+            return akshare_result
+        
+        # AKShare 也失败，尝试使用东方财富API（直接调用，不依赖第三方库）
+        logger.warning(f"AKShare 下载失败，尝试使用东方财富API")
+        return self._download_stock_data_eastmoney(ts_code, start_date, end_date)
     
     def _download_stock_data_akshare(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -356,6 +367,229 @@ class StockDataSync:
         df = df[required_columns]
         
         return df
+    
+    def _download_stock_data_eastmoney(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        直接使用东方财富API下载股票历史数据（不依赖AKShare）
+        
+        :param ts_code: 股票代码，例如 '000001.SZ'
+        :param start_date: 开始日期，格式为 'YYYYMMDD'
+        :param end_date: 结束日期，格式为 'YYYYMMDD'
+        :return: 包含历史数据的DataFrame
+        """
+        # 尝试多个数据API端点（包括东方财富和新浪财经）
+        api_methods = [
+            self._eastmoney_api_v1,   # 东方财富 push2his API
+            self._eastmoney_api_v2,   # 东方财富 quote API
+            self._sina_api_v1,        # 新浪财经 API
+            self._eastmoney_api_v3    # 东方财富 kline API
+        ]
+        
+        for method in api_methods:
+            try:
+                df = method(ts_code, start_date, end_date)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                logger.warning(f"API方法 {method.__name__} 失败: {e}")
+                continue
+        
+        logger.warning(f"所有API端点都无法获取 {ts_code} 的数据")
+        return pd.DataFrame()
+    
+    def _eastmoney_api_v1(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """东方财富API版本1: push2his"""
+        symbol = ts_code.split('.')[0]
+        exchange = '0' if ts_code.endswith('.SZ') else '1'
+        
+        url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+        start_date_str = start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:]
+        end_date_str = end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:]
+        
+        params = {
+            'secid': f"{exchange}.{symbol}",
+            'ut': 'fa5fd1943c7b386f172d6893dbfba10b',
+            'fields1': 'f1,f2,f3,f4,f5,f6',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+            'klt': '101',
+            'fqt': '2',  # 前复权
+            'beg': start_date_str,
+            'end': end_date_str,
+            '_': str(int(time.time() * 1000))
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': f'http://quote.eastmoney.com/{ts_code}',
+            'Accept': 'application/json, text/plain, */*'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get('data', {}).get('klines'):
+            klines = data['data']['klines']
+            df = pd.DataFrame([line.split(',') for line in klines],
+                             columns=['trade_date', 'open', 'close', 'high', 'low',
+                                      'vol', 'amount', 'pct_chg', 'change', 'pre_close',
+                                      'turnover_rate', 'volume_ratio'])
+            df['ts_code'] = ts_code
+            return self._clean_eastmoney_data(df)
+        
+        return pd.DataFrame()
+    
+    def _eastmoney_api_v2(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """东方财富API版本2: quote接口"""
+        symbol = ts_code.split('.')[0]
+        exchange = 'SZ' if ts_code.endswith('.SZ') else 'SH'
+        
+        url = "https://push2.eastmoney.com/api/qt/stock/get"
+        params = {
+            'secid': f"{exchange}.{symbol}",
+            'fields': 'f57,f58,f116,f117,f118,f119,f120,f121,f122,f123,f124,f125'
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': f'http://quote.eastmoney.com/{ts_code}',
+            'Accept': 'application/json, text/plain, */*'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get('data'):
+            d = data['data']
+            df = pd.DataFrame([{
+                'ts_code': ts_code,
+                'trade_date': datetime.now().strftime('%Y%m%d'),
+                'open': d.get('f116'),
+                'high': d.get('f117'),
+                'low': d.get('f118'),
+                'close': d.get('f57'),
+                'pre_close': d.get('f119'),
+                'change': d.get('f120'),
+                'pct_chg': d.get('f121'),
+                'vol': d.get('f122'),
+                'amount': d.get('f123')
+            }])
+            return df
+        
+        return pd.DataFrame()
+    
+    def _eastmoney_api_v3(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """东方财富API版本3: 通用K线接口"""
+        symbol = ts_code.split('.')[0]
+        exchange = '1' if ts_code.endswith('.SZ') else '0'  # 注意：这里交换了
+        
+        url = "https://data.eastmoney.com/kline/getKlineData"
+        params = {
+            'code': f"{exchange}.{symbol}",
+            'market': 'CNSESH' if ts_code.endswith('.SH') else 'CNSESZ',
+            'startTime': start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:],
+            'endTime': end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:],
+            'type': 'day',
+            'isfuquan': 'false'
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+            'Accept': 'application/json, text/plain, */*'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get('data') and data['data'].get('data'):
+            df = pd.DataFrame(data['data']['data'])
+            df = df.rename(columns={
+                'DATE': 'trade_date',
+                'OPEN': 'open',
+                'HIGH': 'high',
+                'LOW': 'low',
+                'CLOSE': 'close',
+                'PRE_CLOSE': 'pre_close',
+                'CHANGE': 'change',
+                'CHANGE_RATE': 'pct_chg',
+                'VOLUME': 'vol',
+                'AMOUNT': 'amount'
+            })
+            df['ts_code'] = ts_code
+            return self._clean_eastmoney_data(df)
+        
+        return pd.DataFrame()
+    
+    def _sina_api_v1(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """新浪财经API: 获取股票历史数据"""
+        symbol = ts_code.split('.')[0]
+        exchange_suffix = 'sz' if ts_code.endswith('.SZ') else 'sh'
+        
+        url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+        
+        params = {
+            'symbol': f"{exchange_suffix}{symbol}",
+            'scale': '240',  # 日K线
+            'ma': 'no',
+            'datalen': '1000'
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': f'http://finance.sina.com.cn/stock/',
+            'Accept': 'application/json, text/plain, */*'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if isinstance(data, list) and len(data) > 0:
+            df = pd.DataFrame(data)
+            df = df.rename(columns={
+                'day': 'trade_date',
+                'open': 'open',
+                'high': 'high',
+                'low': 'low',
+                'close': 'close',
+                'volume': 'vol',
+                'amount': 'amount'
+            })
+            
+            # 先转换数值类型
+            numeric_cols = ['open', 'high', 'low', 'close', 'vol', 'amount']
+            for col in numeric_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # 计算其他字段
+            df['pre_close'] = df['close'].shift(1)
+            df['change'] = df['close'] - df['pre_close']
+            df['pct_chg'] = (df['change'] / df['pre_close']) * 100
+            df['ts_code'] = ts_code
+            
+            return self._clean_eastmoney_data(df)
+        
+        return pd.DataFrame()
+    
+    def _clean_eastmoney_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """清理API返回的数据"""
+        if df.empty:
+            return df
+        
+        numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change',
+                       'pct_chg', 'vol', 'amount']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        if 'trade_date' in df.columns:
+            df['trade_date'] = df['trade_date'].astype(str).str.replace('-', '')
+        
+        required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close',
+                           'pre_close', 'change', 'pct_chg', 'vol', 'amount']
+        df = df[required_columns]
+        
+        return df.dropna()
+
     
     def download_multiple_stocks(self, stock_codes: List[str], start_date: str, 
                                 end_date: str, delay: float = 0.5) -> pd.DataFrame:
