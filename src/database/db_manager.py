@@ -393,10 +393,11 @@ class DuckDBManager:
             # 注册DataFrame为临时视图
             self.conn.register('temp_df', df)
             
-            # 使用INSERT OR IGNORE避免重复
+            # 使用INSERT OR IGNORE避免重复，明确指定列名
             result = self.conn.execute(f"""
-                INSERT OR IGNORE INTO {table_name}
-                SELECT * FROM temp_df
+                INSERT OR IGNORE INTO {table_name} (ts_code, trade_date, open, high, low, close, pre_close, change, pct_chg, vol, amount)
+                SELECT ts_code, trade_date, open, high, low, close, pre_close, change, pct_chg, vol, amount
+                FROM temp_df
             """)
             
             # 取消注册临时视图
