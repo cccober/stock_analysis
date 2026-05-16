@@ -244,34 +244,118 @@ class StockDataSync:
         :param max_retries: 最大重试次数
         :return: 包含历史数据的DataFrame
         """
-        if self.pro is None:
-            logger.warning("Tushare API 未初始化，无法下载数据")
+        # 优先使用 Tushare
+        if self.pro is not None:
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"使用 Tushare 下载 {ts_code} 数据 ({start_date} 至 {end_date})，第 {attempt + 1} 次尝试...")
+                    
+                    df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                    
+                    if df is not None and not df.empty:
+                        logger.info(f"Tushare 成功下载 {ts_code} 的 {len(df)} 条记录")
+                        return df
+                    else:
+                        logger.warning(f"{ts_code} 在指定时间段内没有数据")
+                        return pd.DataFrame()
+                        
+                except Exception as e:
+                    logger.error(f"Tushare 下载 {ts_code} 数据时出错 (尝试 {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt  # 指数退避
+                        logger.info(f"等待 {wait_time} 秒后重试...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.warning(f"Tushare 下载失败，尝试使用 AKShare")
+        
+        # Tushare 失败或未初始化，尝试使用 AKShare
+        return self._download_stock_data_akshare(ts_code, start_date, end_date)
+    
+    def _download_stock_data_akshare(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        使用 AKShare 下载股票历史数据（作为 Tushare 的备选）
+        
+        :param ts_code: 股票代码，例如 '000001.SZ'
+        :param start_date: 开始日期，格式为 'YYYYMMDD'
+        :param end_date: 结束日期，格式为 'YYYYMMDD'
+        :return: 包含历史数据的DataFrame
+        """
+        if not AKSHARE_AVAILABLE:
+            logger.warning("AKShare 未安装，无法作为备选数据源")
             return pd.DataFrame()
             
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"下载 {ts_code} 数据 ({start_date} 至 {end_date})，第 {attempt + 1} 次尝试...")
+        try:
+            import akshare as ak
+            
+            # 转换日期格式
+            start_date_str = start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:]
+            end_date_str = end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:]
+            
+            # 提取交易所代码
+            exchange = 'sh' if ts_code.endswith('.SH') else 'sz'
+            symbol = ts_code.split('.')[0]
+            
+            logger.info(f"使用 AKShare 下载 {ts_code} 数据 ({start_date} 至 {end_date})...")
+            
+            # 使用 AKShare 获取数据
+            df = ak.stock_zh_a_hist(symbol=symbol, period="daily", 
+                                   start_date=start_date_str, end_date=end_date_str,
+                                   adjust="")
+            
+            if df is not None and not df.empty:
+                # 转换列名以匹配 Tushare 格式
+                df = self._convert_akshare_to_tushare_format(df, ts_code)
+                logger.info(f"AKShare 成功下载 {ts_code} 的 {len(df)} 条记录")
+                return df
+            else:
+                logger.warning(f"AKShare 未获取到 {ts_code} 的数据")
+                return pd.DataFrame()
                 
-                df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
-                
-                if df is not None and not df.empty:
-                    logger.info(f"成功下载 {ts_code} 的 {len(df)} 条记录")
-                    return df
-                else:
-                    logger.warning(f"{ts_code} 在指定时间段内没有数据")
-                    return pd.DataFrame()
-                    
-            except Exception as e:
-                logger.error(f"下载 {ts_code} 数据时出错 (尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 指数退避
-                    logger.info(f"等待 {wait_time} 秒后重试...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"下载 {ts_code} 数据失败，已达到最大重试次数")
-                    return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"AKShare 下载 {ts_code} 数据时出错: {e}")
+            return pd.DataFrame()
+    
+    def _convert_akshare_to_tushare_format(self, df: pd.DataFrame, ts_code: str) -> pd.DataFrame:
+        """
+        将 AKShare 数据格式转换为 Tushare 格式
         
-        return pd.DataFrame()
+        :param df: AKShare 返回的DataFrame
+        :param ts_code: 股票代码
+        :return: 转换后的DataFrame
+        """
+        if df.empty:
+            return df
+            
+        # AKShare 列名到 Tushare 列名的映射
+        column_mapping = {
+            '日期': 'trade_date',
+            '开盘': 'open',
+            '最高': 'high',
+            '最低': 'low',
+            '收盘': 'close',
+            '前收盘': 'pre_close',
+            '涨跌额': 'change',
+            '涨跌幅': 'pct_chg',
+            '成交量': 'vol',
+            '成交额': 'amount'
+        }
+        
+        # 只保留需要的列并重命名
+        df = df.rename(columns=column_mapping)
+        
+        # 添加 ts_code 列
+        df['ts_code'] = ts_code
+        
+        # 转换日期格式
+        if 'trade_date' in df.columns:
+            df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y%m%d')
+        
+        # 确保列顺序正确
+        required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 
+                           'pre_close', 'change', 'pct_chg', 'vol', 'amount']
+        df = df[required_columns]
+        
+        return df
     
     def download_multiple_stocks(self, stock_codes: List[str], start_date: str, 
                                 end_date: str, delay: float = 0.5) -> pd.DataFrame:
