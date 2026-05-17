@@ -1508,7 +1508,7 @@ async def web_app():
                 
                 const volumeData = data.map(d => ({
                     time: d.time.split(' ')[0],
-                    value: d.volume,
+                    value: d.vol || d.volume || 0,
                     color: d.close >= d.open ? '#f8514966' : '#3fb95066'
                 }));
                 
@@ -1654,7 +1654,7 @@ async def web_app():
             }
 
             function updateVolumeAnalysis(data) {
-                const volumes = data.map(d => d.volume || 0);
+                const volumes = data.map(d => d.vol || d.volume || 0);
                 const len = volumes.length;
                 if (len < 5) {
                     document.getElementById('volumeAnalysis').innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">\u6570\u636e\u4e0d\u8db3</div>';
@@ -1783,13 +1783,13 @@ async def web_app():
                             high: d.high,
                             low: d.low,
                             close: d.close,
-                            volume: d.volume || 0
+                            volume: d.vol || d.volume || 0
                         };
                     } else {
                         currentWeek.high = Math.max(currentWeek.high, d.high);
                         currentWeek.low = Math.min(currentWeek.low, d.low);
                         currentWeek.close = d.close;
-                        currentWeek.volume += (d.volume || 0);
+                        currentWeek.volume += (d.vol || d.volume || 0);
                     }
                 });
                 if (currentWeek) weekly.push(currentWeek);
@@ -1811,13 +1811,13 @@ async def web_app():
                             high: d.high,
                             low: d.low,
                             close: d.close,
-                            volume: d.volume || 0
+                            volume: d.vol || d.volume || 0
                         };
                     } else {
                         currentMonth.high = Math.max(currentMonth.high, d.high);
                         currentMonth.low = Math.min(currentMonth.low, d.low);
                         currentMonth.close = d.close;
-                        currentMonth.volume += (d.volume || 0);
+                        currentMonth.volume += (d.vol || d.volume || 0);
                     }
                 });
                 if (currentMonth) monthly.push(currentMonth);
