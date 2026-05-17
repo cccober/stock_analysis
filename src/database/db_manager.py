@@ -425,10 +425,19 @@ class DuckDBManager:
         :param message: 附加消息
         """
         try:
+            # 转换日期格式为 YYYY-MM-DD
+            def format_date(date_str: str) -> str:
+                if len(date_str) == 8:  # YYYYMMDD 格式
+                    return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                return date_str  # 已经是正确格式
+            
+            formatted_start = format_date(start_date)
+            formatted_end = format_date(end_date)
+            
             self.conn.execute("""
                 INSERT INTO update_log (ts_code, start_date, end_date, record_count, status, message)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, [ts_code, start_date, end_date, record_count, status, message])
+            """, [ts_code, formatted_start, formatted_end, record_count, status, message])
             logger.info(f"更新日志已记录: {ts_code} {status}")
         except Exception as e:
             logger.error(f"记录更新日志失败: {e}")
