@@ -218,10 +218,7 @@ class TechnicalIndicators:
         
         # 成交量MA
         df = TechnicalIndicators.calculate_volume_ma(df)
-        
-        # OBV指标
-        df = TechnicalIndicators.calculate_obv(df)
-        
+
         return df
     
     @staticmethod
@@ -267,11 +264,6 @@ class TechnicalIndicators:
                 'upper': round(latest['BOLL_UP'], 2) if 'BOLL_UP' in latest else None,
                 'mid': round(latest['BOLL_MID'], 2) if 'BOLL_MID' in latest else None,
                 'lower': round(latest['BOLL_DOWN'], 2) if 'BOLL_DOWN' in latest else None,
-            },
-            'obv': {
-                'OBV': round(latest['OBV'], 2) if 'OBV' in latest else None,
-                'OBV_MA': round(latest['OBV_MA'], 2) if 'OBV_MA' in latest else None,
-                'OBV_Trend': '上升' if 'OBV' in latest and 'OBV_MA' in latest and latest['OBV'] > latest['OBV_MA'] else '下降' if 'OBV' in latest and 'OBV_MA' in latest and latest['OBV'] < latest['OBV_MA'] else '持平',
             }
         }
         
