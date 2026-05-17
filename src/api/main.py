@@ -1633,7 +1633,8 @@ async def web_app():
             function updateVolatilityAnalysis(data) {
                 // 使用数据中已有的pct_chg字段，而不是自己计算
                 // 自己计算会受到除权除息等因素影响导致异常值
-                const returns = data.filter(d => d.pct_chg !== undefined && d.pct_chg !== null).map(d => d.pct_chg);
+                // 过滤掉不合理的涨跌幅（A股正常涨跌幅应在±15%以内）
+                const returns = data.filter(d => d.pct_chg !== undefined && d.pct_chg !== null && d.pct_chg >= -15 && d.pct_chg <= 15).map(d => d.pct_chg);
                 if (returns.length < 5) {
                     document.getElementById('volatilityAnalysis').innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">\u6570\u636e\u4e0d\u8db3</div>';
                     return;
