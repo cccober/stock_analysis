@@ -1509,7 +1509,7 @@ async def web_app():
                 const volumeData = data.map(d => ({
                     time: d.time.split(' ')[0],
                     value: d.vol || d.volume || 0,
-                    color: d.close >= d.open ? '#f8514966' : '#3fb95066'
+                    color: d.close >= d.open ? '#f85149' : '#3fb950'
                 }));
                 
                 volumeSeries.setData(volumeData);
