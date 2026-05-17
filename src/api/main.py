@@ -1631,8 +1631,9 @@ async def web_app():
             }
 
             function updateVolatilityAnalysis(data) {
-                const returns = [];
-                for (let i = 1; i < data.length; i++) if (data[i-1].close && data[i].close) returns.push((data[i].close - data[i-1].close) / data[i-1].close * 100);
+                // 使用数据中已有的pct_chg字段，而不是自己计算
+                // 自己计算会受到除权除息等因素影响导致异常值
+                const returns = data.filter(d => d.pct_chg !== undefined && d.pct_chg !== null).map(d => d.pct_chg);
                 if (returns.length < 5) {
                     document.getElementById('volatilityAnalysis').innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">\u6570\u636e\u4e0d\u8db3</div>';
                     return;
