@@ -157,6 +157,38 @@ class TechnicalIndicators:
         return df
     
     @staticmethod
+    def calculate_obv(data: pd.DataFrame) -> pd.DataFrame:
+        """
+        计算OBV（On-Balance Volume）指标
+        
+        OBV是通过累积成交量来判断价格趋势的指标：
+        - 如果当日收盘价 > 前一日收盘价，OBV = 前一日OBV + 当日成交量
+        - 如果当日收盘价 < 前一日收盘价，OBV = 前一日OBV - 当日成交量
+        - 如果当日收盘价 = 前一日收盘价，OBV = 前一日OBV
+        
+        :param data: 股票数据DataFrame
+        :return: 包含OBV的DataFrame
+        """
+        df = data.copy()
+        
+        # 计算价格变化
+        price_change = df['close'].diff()
+        
+        # 根据价格变化确定成交量方向
+        direction = np.where(price_change > 0, 1, np.where(price_change < 0, -1, 0))
+        
+        # 计算每日OBV变化
+        obv_change = df['vol'] * direction
+        
+        # 累积计算OBV
+        df['OBV'] = obv_change.cumsum()
+        
+        # 计算OBV的移动平均线
+        df['OBV_MA'] = df['OBV'].rolling(window=20).mean()
+        
+        return df
+    
+    @staticmethod
     def calculate_all_indicators(data: pd.DataFrame) -> pd.DataFrame:
         """
         计算所有技术指标
@@ -186,6 +218,9 @@ class TechnicalIndicators:
         
         # 成交量MA
         df = TechnicalIndicators.calculate_volume_ma(df)
+        
+        # OBV指标
+        df = TechnicalIndicators.calculate_obv(df)
         
         return df
     
@@ -232,6 +267,11 @@ class TechnicalIndicators:
                 'upper': round(latest['BOLL_UP'], 2) if 'BOLL_UP' in latest else None,
                 'mid': round(latest['BOLL_MID'], 2) if 'BOLL_MID' in latest else None,
                 'lower': round(latest['BOLL_DOWN'], 2) if 'BOLL_DOWN' in latest else None,
+            },
+            'obv': {
+                'OBV': round(latest['OBV'], 2) if 'OBV' in latest else None,
+                'OBV_MA': round(latest['OBV_MA'], 2) if 'OBV_MA' in latest else None,
+                'OBV_Trend': '上升' if 'OBV' in latest and 'OBV_MA' in latest and latest['OBV'] > latest['OBV_MA'] else '下降' if 'OBV' in latest and 'OBV_MA' in latest and latest['OBV'] < latest['OBV_MA'] else '持平',
             }
         }
         

@@ -1686,6 +1686,7 @@ async def web_app():
                 if (s.RSI > 30 && s.RSI < 70) { score += 5; reasons.push('RSI\u6b63\u5e38'); } else if (s.RSI < 30) { score += 15; reasons.push('RSI\u8d85\u5356'); } else { score -= 10; reasons.push('RSI\u8d85\u4e70'); }
                 if (s.K > s.D) { score += 10; reasons.push('KDJ\u91d1\u53c9'); } else { score -= 10; reasons.push('KDJ\u6b7b\u53c9'); }
                 if (s.close > s.MA20) { score += 10; reasons.push('\u4ef7\u683c\u4e0a\u7a7fMA20'); } else { score -= 10; reasons.push('\u4ef7\u683c\u4e0b\u7a7fMA20'); }
+                if (s.OBV_Trend === '上升') { score += 5; reasons.push('OBV\u4e0a\u5347'); } else if (s.OBV_Trend === '下降') { score -= 5; reasons.push('OBV\u4e0b\u964d'); }
                 score = Math.max(0, Math.min(100, score));
                 let rating = '\u4e2d\u6027';
                 let ratingClass = 'signal-neutral';
