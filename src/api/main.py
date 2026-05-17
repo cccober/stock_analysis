@@ -142,6 +142,8 @@ async def get_kline(ts_code: str, limit: int = Query(5000, ge=1, le=10000)):
         if data.empty:
             return {"success": True, "data": [], "stock_name": stock_name, "total": 0}
         data = data.tail(limit)
+        # 计算技术指标（包括OBV）
+        data = TechnicalIndicators.calculate_obv(data)
         data['time'] = data['trade_date'].astype(str)
         data_list = data.to_dict('records')
         return {
@@ -1063,7 +1065,11 @@ async def web_app():
                                 </div>
                                 <div class="chart-panel volume-panel">
                                     <div class="chart-panel-title">
-                                        <span>成交量</span>
+                                        <span>成交量/OBV</span>
+                                        <select id="volumeIndicatorSelect" onchange="switchVolumeIndicator()" style="margin-left:8px;padding:2px 6px;font-size:11px;border:1px solid var(--border-color);border-radius:3px;background:var(--bg-secondary);color:var(--text-primary)">
+                                            <option value="volume">成交量</option>
+                                            <option value="obv">OBV</option>
+                                        </select>
                                     </div>
                                     <div id="volumeChart"></div>
                                 </div>
@@ -1502,25 +1508,48 @@ async def web_app():
                     handleScale: false
                 });
                 
-                volumeSeries = volumeChart.addHistogramSeries({
-                    color: '#58a6ff'
-                });
+                const indicatorType = document.getElementById('volumeIndicatorSelect')?.value || 'volume';
                 
-                const volumeData = data.map(d => ({
-                    time: d.time.split(' ')[0],
-                    value: d.vol || d.volume || 0,
-                    color: d.close >= d.open ? '#f85149' : '#3fb950'
-                }));
-                
-                volumeSeries.setData(volumeData);
+                if (indicatorType === 'volume') {
+                    volumeSeries = volumeChart.addHistogramSeries({
+                        color: '#58a6ff'
+                    });
+                    
+                    const volumeData = data.map(d => ({
+                        time: d.time.split(' ')[0],
+                        value: d.vol || d.volume || 0,
+                        color: d.close >= d.open ? '#f85149' : '#3fb950'
+                    }));
+                    
+                    volumeSeries.setData(volumeData);
+                } else {
+                    volumeSeries = volumeChart.addLineSeries({
+                        color: '#58a6ff',
+                        lineWidth: 2
+                    });
+                    
+                    const obvData = data.map(d => ({
+                        time: d.time.split(' ')[0],
+                        value: d.OBV || 0
+                    }));
+                    
+                    volumeSeries.setData(obvData);
+                }
                 
                 // 默认显示最近500条数据
-                if (volumeData.length > 500) {
-                    const startIndex = volumeData.length - 500;
+                const chartData = indicatorType === 'volume' ? data.map(d => d.vol || d.volume || 0) : data.map(d => d.OBV || 0);
+                if (chartData.length > 500) {
+                    const startIndex = chartData.length - 500;
                     volumeChart.timeScale().setVisibleLogicalRange({
                         from: startIndex,
-                        to: volumeData.length - 1
+                        to: chartData.length - 1
                     });
+                }
+            }
+            
+            function switchVolumeIndicator() {
+                if (currentStockData && currentStockData.length > 0) {
+                    renderVolumeChart(currentStockData);
                 }
             }
 
