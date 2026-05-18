@@ -219,6 +219,9 @@ class TechnicalIndicators:
         # 成交量MA
         df = TechnicalIndicators.calculate_volume_ma(df)
 
+        # OBV指标
+        df = TechnicalIndicators.calculate_obv(df)
+
         return df
     
     @staticmethod

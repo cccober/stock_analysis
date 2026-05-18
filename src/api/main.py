@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 import json
 import logging
 import os
@@ -142,8 +143,13 @@ async def get_kline(ts_code: str, limit: int = Query(5000, ge=1, le=10000)):
         if data.empty:
             return {"success": True, "data": [], "stock_name": stock_name, "total": 0}
         data = data.tail(limit)
+        data = TechnicalIndicators.calculate_obv(data)
         data['time'] = data['trade_date'].astype(str)
         data_list = data.to_dict('records')
+        for record in data_list:
+            for key, value in record.items():
+                if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                    record[key] = None
         return {
             "success": True,
             "data": data_list,
@@ -1063,7 +1069,11 @@ async def web_app():
                                 </div>
                                 <div class="chart-panel volume-panel">
                                     <div class="chart-panel-title">
-                                        <span>成交量</span>
+                                        <span>指标</span>
+                                        <select id="volumeIndicatorSelect" onchange="switchVolumeIndicator()">
+                                            <option value="volume">成交量</option>
+                                            <option value="obv">OBV</option>
+                                        </select>
                                     </div>
                                     <div id="volumeChart"></div>
                                 </div>
@@ -1353,8 +1363,8 @@ async def web_app():
                     
                     currentStockData = displayData;
                     renderChart(displayData);
-                    renderVolumeChart(displayData);
-                    
+                    renderVolumeChart(displayData, 'volume');
+
                     if (latestResult.success && latestResult.data.length > 0) {
                         updatePriceInfo(latestResult.data[0]);
                     }
@@ -1457,11 +1467,14 @@ async def web_app():
                 }
                 
                 // 同步缩放
-                chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                const syncCharts = () => {
+                    const range = chart.timeScale().getVisibleLogicalRange();
                     if (volumeChart) {
-                        volumeChart.timeScale().setVisibleLogicalRange(chart.timeScale().getVisibleLogicalRange());
+                        volumeChart.timeScale().setVisibleLogicalRange(range);
                     }
-                });
+                };
+                chart.timeScale().subscribeVisibleTimeRangeChange(syncCharts);
+                chart.timeScale().subscribeVisibleLogicalRangeChange(syncCharts);
             }
 
             function calculateMA(data, period) {
@@ -1476,7 +1489,7 @@ async def web_app():
                 return ma;
             }
 
-            function renderVolumeChart(data) {
+            function renderVolumeChart(data, indicatorType = 'volume') {
                 const container = document.getElementById('volumeChart');
                 container.innerHTML = '';
                 
@@ -1496,31 +1509,64 @@ async def web_app():
                         scaleMargins: { top: 0.2, bottom: 0 }
                     },
                     timeScale: {
-                        visible: false
+                        visible: true,
+                        timeVisible: true,
+                        borderColor: '#30363d'
                     },
                     handleScroll: false,
                     handleScale: false
                 });
                 
-                volumeSeries = volumeChart.addHistogramSeries({
-                    color: '#58a6ff'
-                });
-                
-                const volumeData = data.map(d => ({
-                    time: d.time.split(' ')[0],
-                    value: d.vol || d.volume || 0,
-                    color: d.close >= d.open ? '#f85149' : '#3fb950'
-                }));
-                
-                volumeSeries.setData(volumeData);
+                if (indicatorType === 'volume') {
+                    volumeSeries = volumeChart.addHistogramSeries({
+                        color: '#58a6ff'
+                    });
+                    
+                    const volumeData = data.map(d => ({
+                        time: d.time.split(' ')[0],
+                        value: d.vol || d.volume || 0,
+                        color: d.close >= d.open ? '#f85149' : '#3fb950'
+                    }));
+                    
+                    volumeSeries.setData(volumeData);
+                } else {
+                    volumeSeries = volumeChart.addLineSeries({
+                        color: '#58a6ff',
+                        lineWidth: 2
+                    });
+                    
+                    const obvData = data.map(d => ({
+                        time: d.time.split(' ')[0],
+                        value: typeof d.OBV === 'number' ? d.OBV : 0
+                    }));
+                    
+                    volumeSeries.setData(obvData);
+                }
                 
                 // 默认显示最近500条数据
-                if (volumeData.length > 500) {
-                    const startIndex = volumeData.length - 500;
+                const chartData = indicatorType === 'volume' ? 
+                    data.map(d => ({ time: d.time.split(' ')[0], value: d.vol || d.volume || 0 })) :
+                    data.map(d => ({ time: d.time.split(' ')[0], value: typeof d.OBV === 'number' ? d.OBV : 0 }));
+                
+                if (chartData.length > 500) {
+                    const startIndex = chartData.length - 500;
                     volumeChart.timeScale().setVisibleLogicalRange({
                         from: startIndex,
-                        to: volumeData.length - 1
+                        to: chartData.length - 1
                     });
+                }
+                
+                // 同步K线图时间轴
+                if (chart) {
+                    volumeChart.timeScale().setVisibleLogicalRange(chart.timeScale().getVisibleLogicalRange());
+                }
+            }
+            
+            function switchVolumeIndicator() {
+                const select = document.getElementById('volumeIndicatorSelect');
+                const indicatorType = select.value;
+                if (currentStockData) {
+                    renderVolumeChart(currentStockData, indicatorType);
                 }
             }
 
